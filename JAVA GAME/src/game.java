@@ -310,6 +310,7 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
                 double xyDist = Math.sqrt(Math.pow(o.pos.x - playerPos.x, 2) + Math.pow(o.pos.y - playerPos.y, 2));
                 double hitRad = o.size + 20; 
 
+                // --- CORE COLLISION CHECK ---
                 if (Math.abs(o.pos.z - playerVisualZ) < 50 && xyDist < hitRad) {
                     if (o.type == 2) { 
                         if (health < 3) health++;
@@ -376,7 +377,11 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
 
     public void spawnObstacle(double zDist, boolean isHealthDrop) {
         double angle = rand.nextDouble() * Math.PI * 2;
-        double r = rand.nextDouble() * 200;
+        
+        // FIX: Increased spawn radius from 200 to 280 to ensure obstacles cover the 
+        // entire playable area (max radius 250) and can hit the player in the corners.
+        double r = rand.nextDouble() * 280; 
+        
         double x = Math.cos(angle) * r;
         double y = Math.sin(angle) * r;
         double z = playerPos.z + zDist;
@@ -492,7 +497,7 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
             g.setColor(Color.ORANGE);
             g.drawString("BOMBS: " + bombAmmo, 20, 55);
             g.setFont(new Font("Courier New", Font.PLAIN, 12));
-            g.drawString("(RIGHT CLICK / L)", 20, 70); // UPDATED INSTRUCTION
+            g.drawString("(RIGHT CLICK / L)", 20, 70); 
         }
 
         renderer.drawCrosshair(g, WIDTH / 2, HEIGHT / 2, Color.GREEN);
@@ -605,8 +610,8 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
         if (k==KeyEvent.VK_A) aPressed=true; if (k==KeyEvent.VK_D) dPressed=true;
         if (k==KeyEvent.VK_SPACE) spacePressed=true;
         if (k==KeyEvent.VK_ENTER) enterPressed=true;
-        if (k==KeyEvent.VK_K) shootPressed=true; // UPDATED KEY K
-        if (k==KeyEvent.VK_L) bombPressed=true;  // UPDATED KEY L
+        if (k==KeyEvent.VK_K) shootPressed=true; // Key K for shooting
+        if (k==KeyEvent.VK_L) bombPressed=true;  // Key L for bombing
     }
     public void keyReleased(KeyEvent e) {
         int k = e.getKeyCode();
@@ -616,8 +621,8 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
         if (k==KeyEvent.VK_A) aPressed=false; if (k==KeyEvent.VK_D) dPressed=false;
         if (k==KeyEvent.VK_SPACE) spacePressed=false;
         if (k==KeyEvent.VK_ENTER) enterPressed=false;
-        if (k==KeyEvent.VK_K) shootPressed=false; // UPDATED KEY K
-        if (k==KeyEvent.VK_L) bombPressed=false;  // UPDATED KEY L
+        if (k==KeyEvent.VK_K) shootPressed=false; // Key K for shooting
+        if (k==KeyEvent.VK_L) bombPressed=false;  // Key L for bombing
     }
     public void keyTyped(KeyEvent e) {}
     public void mouseClicked(MouseEvent e) {}
