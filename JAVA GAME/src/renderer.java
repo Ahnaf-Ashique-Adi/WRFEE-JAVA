@@ -83,64 +83,147 @@ public class renderer {
     
     // NEW: Ant Enemy Drawing
     public static void drawAnt(Graphics g, vector pos, double size, int tick, camera cam, Color c) {
-        // Body (3 segments)
         double segmentSize = size / 3;
-        drawCube(g, pos, segmentSize, cam, c); // Thorax
-        drawCube(g, new vector(pos.x, pos.y, pos.z - segmentSize), segmentSize*0.8, cam, c); // Abdomen
-        drawCube(g, new vector(pos.x, pos.y, pos.z + segmentSize), segmentSize*0.6, cam, c); // Head
         
-        // Biting Animation (Mandibles)
-        double biteOffset = Math.sin(tick * 0.5) * 5;
-        vector mandibleL = new vector(pos.x - 5 - biteOffset, pos.y, pos.z + segmentSize + 5);
-        vector mandibleR = new vector(pos.x + 5 + biteOffset, pos.y, pos.z + segmentSize + 5);
-        vector headTip = new vector(pos.x, pos.y, pos.z + segmentSize + 15);
-        drawLine(g, new vector(pos.x, pos.y, pos.z + segmentSize), headTip, cam, c);
+        // 1. Draw Body Segments (Thorax, Abdomen, Head)
+        // We tilt the head slightly up/down based on tick to make it look alive
+        vector headOffset = new vector(0, Math.sin(tick * 0.2) * 5, segmentSize + 5); 
         
-        // Legs Animation
-        for(int i=0; i<3; i++) {
-            double legZ = pos.z + (i-1) * 5;
-            double legMove = Math.sin(tick * 0.2 + i) * 10;
+        drawCube(g, pos, segmentSize, cam, c); // Center
+        drawCube(g, new vector(pos.x, pos.y, pos.z - segmentSize), segmentSize * 1.2, cam, c); // Rear
+        drawCube(g, vector.add(pos, headOffset), segmentSize * 0.8, cam, c); // Head
+
+        // 2. Draw Articulated Legs using Rotation
+        for (int i = 0; i < 3; i++) {
+            // Calculate a "cycle" for the leg movement so they don't all move at once
+            double legCycle = tick * 0.2 + (i * 2); 
+            double lift = Math.max(0, Math.sin(legCycle)) * 10; // Lift leg up
+            double swing = Math.cos(legCycle) * 10; // Swing leg forward/back
+
+            // Define leg shape RELATIVE to the body (Model Space)
+            vector kneeBase = new vector(20, -10, (i - 1) * 15);
+            vector footBase = new vector(35, 10, (i - 1) * 15);
+
+            // Apply animation to model space
+            kneeBase.y -= lift;
+            footBase.y += lift; 
+            footBase.z += swing;
+
+            // Rotate legs for the Left side (Normal)
+            vector kneeL = vector.add(pos, new vector(-kneeBase.x, kneeBase.y, kneeBase.z));
+            vector footL = vector.add(pos, new vector(-footBase.x, footBase.y, footBase.z));
             
-            // Left Legs
-            vector kneeL = new vector(pos.x - 15, pos.y - 10 + legMove, legZ);
-            vector footL = new vector(pos.x - 25, pos.y + 10, legZ);
+            // Rotate legs for the Right side (Mirror)
+            vector kneeR = vector.add(pos, kneeBase);
+            vector footR = vector.add(pos, footBase);
+
+            // Draw Left Leg
             drawLine(g, pos, kneeL, cam, c);
             drawLine(g, kneeL, footL, cam, c);
-            
-            // Right Legs
-            vector kneeR = new vector(pos.x + 15, pos.y - 10 - legMove, legZ);
-            vector footR = new vector(pos.x + 25, pos.y + 10, legZ);
+
+            // Draw Right Leg
             drawLine(g, pos, kneeR, cam, c);
             drawLine(g, kneeR, footR, cam, c);
         }
+        
+        // 3. Draw Antennae (Rotated)
+        vector antL = new vector(-5, -10, 10);
+        vector antR = new vector(5, -10, 10);
+        
+        // Rotate antennae back and forth
+        antL = vector.rotateX(antL, Math.sin(tick * 0.1) * 0.2);
+        antR = vector.rotateX(antR, Math.sin(tick * 0.1) * 0.2);
+        
+        drawLine(g, vector.add(pos, headOffset), vector.add(vector.add(pos, headOffset), antL), cam, c);
+        drawLine(g, vector.add(pos, headOffset), vector.add(vector.add(pos, headOffset), antR), cam, c);
     }
     
     // NEW: Dragon Enemy Drawing
     public static void drawDragon(Graphics g, vector pos, double size, int tick, camera cam, Color c) {
-        // Body (Spine)
-        vector headPos = new vector(pos.x, pos.y, pos.z + 40);
-        drawCone(g, headPos, 10, 30, cam, c); // Head
+        // 1. The Head
+        vector headPos = new vector(pos.x, pos.y, pos.z + 50);
+        drawCone(g, headPos, 15, 40, cam, c); // Snout
+        drawCube(g, new vector(pos.x, pos.y - 15, pos.z + 40), 10, cam, Color.RED); // Glowing Eyes
+
+        // 2. The Wings (Complex Flapping)
+        double flapAngle = Math.sin(tick * 0.15) * 0.5; // Flap range in radians
         
-        // Wings Flapping
-        double wingFlap = Math.sin(tick * 0.1) * 40;
-        vector bodyCenter = pos;
-        vector leftWingTip = new vector(pos.x - 80, pos.y + wingFlap, pos.z);
-        vector rightWingTip = new vector(pos.x + 80, pos.y + wingFlap, pos.z);
+        // Define a wing shape flat
+        vector wingBone1 = new vector(60, 0, 10);
+        vector wingBone2 = new vector(120, 20, -20); // Tip
         
-        // Wing structure
-        drawLine(g, bodyCenter, leftWingTip, cam, c);
-        drawLine(g, bodyCenter, rightWingTip, cam, c);
-        drawLine(g, leftWingTip, new vector(pos.x - 20, pos.y, pos.z - 40), cam, c);
-        drawLine(g, rightWingTip, new vector(pos.x + 20, pos.y, pos.z - 40), cam, c);
+        // Apply Rotation to Left Wing
+        vector L1 = vector.add(pos, vector.rotateZ(new vector(-wingBone1.x, wingBone1.y, wingBone1.z), -flapAngle));
+        vector L2 = vector.add(pos, vector.rotateZ(new vector(-wingBone2.x, wingBone2.y, wingBone2.z), -flapAngle * 1.5));
         
-        // Tail (Undulating)
-        vector prevTail = bodyCenter;
-        for(int i=1; i<5; i++) {
-            double tailWag = Math.sin(tick * 0.1 + i) * 10;
-            vector currentTail = new vector(pos.x + tailWag, pos.y, pos.z - (i * 20));
-            drawLine(g, prevTail, currentTail, cam, c);
-            prevTail = currentTail;
+        // Apply Rotation to Right Wing
+        vector R1 = vector.add(pos, vector.rotateZ(wingBone1, flapAngle));
+        vector R2 = vector.add(pos, vector.rotateZ(wingBone2, flapAngle * 1.5));
+
+        // Draw Wings
+        drawLine(g, pos, L1, cam, c); drawLine(g, L1, L2, cam, c); // Left Structure
+        drawLine(g, L1, vector.add(pos, new vector(0,0,-20)), cam, c); // Membrane
+        
+        drawLine(g, pos, R1, cam, c); drawLine(g, R1, R2, cam, c); // Right Structure
+        drawLine(g, R1, vector.add(pos, new vector(0,0,-20)), cam, c); // Membrane
+
+        // 3. The Tail (3D Spiral / Helix)
+        vector prevSegment = pos;
+        for (int i = 1; i < 8; i++) {
+            double tailLag = (tick * 0.2) - (i * 0.5);
+            
+            // This creates a circular/spiral motion for the tail
+            double tx = Math.sin(tailLag) * (10 + i * 2); 
+            double ty = Math.cos(tailLag) * (10 + i * 2);
+            double tz = -i * 30;
+
+            vector currSegment = vector.add(pos, new vector(tx, ty, tz));
+            
+            drawLine(g, prevSegment, currSegment, cam, c);
+            
+            // Draw small spikes on tail
+            if (i % 2 == 0) {
+                 vector spike = vector.add(currSegment, new vector(0, -15, 0));
+                 drawLine(g, currSegment, spike, cam, c);
+            }
+            
+            prevSegment = currSegment;
         }
+    }
+    // NEW: T-Rex Enemy Drawing
+    public static void drawTRex(Graphics g, vector pos, double size, int tick, camera cam, Color c) {
+        // 1. Body (Main Block)
+        drawCube(g, pos, size, cam, c);
+        
+        // 2. Head (Large and boxy, slightly up and forward)
+        vector headPos = new vector(pos.x, pos.y - size/2, pos.z + size/2 + 10);
+        drawCube(g, headPos, size * 0.8, cam, c);
+        
+        // 3. Jaw (Opens and closes)
+        double jawOpen = Math.abs(Math.sin(tick * 0.2)) * 10;
+        vector jawPos = new vector(pos.x, pos.y - size/2 + 10 + jawOpen, pos.z + size/2 + 15);
+        renderer.drawLine(g, headPos, jawPos, cam, c);
+        
+        // 4. Tiny Arms (Classic T-Rex feature)
+        vector armL = new vector(pos.x - size/2, pos.y, pos.z + size/2);
+        vector armR = new vector(pos.x + size/2, pos.y, pos.z + size/2);
+        renderer.drawLine(g, armL, new vector(armL.x, armL.y + 10, armL.z + 10), cam, c);
+        renderer.drawLine(g, armR, new vector(armR.x, armR.y + 10, armR.z + 10), cam, c);
+
+        // 5. Legs (Walking Animation)
+        double legMove = Math.sin(tick * 0.2) * 20;
+        vector hipL = new vector(pos.x - size/3, pos.y + size/2, pos.z);
+        vector hipR = new vector(pos.x + size/3, pos.y + size/2, pos.z);
+        
+        vector footL = new vector(hipL.x, hipL.y + 30, hipL.z + legMove);
+        vector footR = new vector(hipR.x, hipR.y + 30, hipR.z - legMove);
+        
+        renderer.drawLine(g, hipL, footL, cam, c);
+        renderer.drawLine(g, hipR, footR, cam, c);
+        
+        // 6. Tail (Balancing behind)
+        vector tailTip = new vector(pos.x + Math.sin(tick*0.1)*10, pos.y, pos.z - size * 2);
+        renderer.drawLine(g, pos, tailTip, cam, c);
     }
 
     public static void drawCrosshair(Graphics g, int centerX, int centerY, Color c) {

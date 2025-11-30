@@ -20,7 +20,7 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
     public Thread thread;
 
     public enum State {
-        MENU, OPTIONS, CREDITS, COUNTDOWN, PLAYING, PAUSED, GAMEOVER
+        MENU, LEVEL_SELECT, OPTIONS, CREDITS, COUNTDOWN, PLAYING, PAUSED, GAMEOVER
     }
 
     public State state = State.MENU;
@@ -39,16 +39,20 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
     public int shootCooldown = 0;
     public boolean canShoot = true;
     public int bombAmmo = 5; 
-    public int bombCooldown = 0; // Prevent accidental rapid firing of bombs
+    public int bombCooldown = 0; 
 
     public int countdownTimer = 0;
     public int countdownValue = 0;
 
     public vector playerPos = new vector(0, 0, 0);
     public camera cam = new camera(0, 0, -100);
+    public Sound bgMusic;
 
     public ArrayList<obstacle> obstacles = new ArrayList<>();
     public ArrayList<particle> particles = new ArrayList<>();
+    
+    public ArrayList<vector> menuStars = new ArrayList<>(); 
+    public float titleHoverPhase = 0f; 
     public Random rand = new Random();
 
     // 20 Neon Suited Colors
@@ -70,11 +74,33 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
     public int pauseSelection = 0;
     public final String[] pauseItems = { "RESUME", "EXIT" };
 
+    // --- LEVEL SELECTION VARIABLES ---
+    public int selectedLevelIndex = 2; // Default to Normal
+    public final String[] levelNames = {"CHILL", "EASY", "NORMAL", "HARD", "NIGHTMARE"};
+    public final Color[] levelColors = {Color.CYAN, Color.GREEN, Color.BLUE, Color.ORANGE, Color.RED};
+    public float levelOrbitAngle = 0f; 
+    public double difficultyMultiplier = 1.0; 
+
     public boolean leftPressed, rightPressed, wPressed, sPressed, aPressed, dPressed;
-    public boolean spacePressed, enterPressed, shootPressed, bombPressed, mouseLeftClicked, mouseRightClicked;
+    public boolean spacePressed, enterPressed, escPressed, fPressed; 
+    public boolean mouseLeftClicked, mouseRightClicked;
+
+    public void initMenuStars() {
+        menuStars.clear();
+        for(int i=0; i<200; i++) {
+            double x = (rand.nextDouble() - 0.5) * WIDTH * 2;
+            double y = (rand.nextDouble() - 0.5) * HEIGHT * 2;
+            double z = rand.nextDouble() * 1000;
+            menuStars.add(new vector(x, y, z));
+        }
+    }
 
     public game() {
         updateMenuItems();
+        initMenuStars();
+            // --- ADD MUSIC LOADING HERE ---
+        bgMusic = new Sound("bin/music.wav"); // Make sure file name matches exactly
+        bgMusic.loop(); // Starts playing immediately and loops forever
     }
     
     public void updateMenuItems() {
@@ -92,7 +118,7 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
 
     public static void main(String[] args) {
         game g = new game();
-        JFrame frame = new JFrame("RETRO RUNNER");
+        JFrame frame = new JFrame("WIRE FLEE"); 
         frame.add(g);
         frame.pack();
         frame.setSize(WIDTH, HEIGHT);
@@ -115,8 +141,7 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
         this.addMouseListener(this);
         this.requestFocus();
         
-        highScores.add(new HighScore(3000, 15000));
-        highScores.add(new HighScore(1500, 8000));
+        highScores = ScoreManager.loadScores();
         Collections.sort(highScores);
 
         long lastTime = System.nanoTime();
@@ -138,24 +163,50 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
 
     public void update() {
         if (state != State.PLAYING) animationFrame = (animationFrame + 1) % 60;
-        boolean actionTriggered = enterPressed || spacePressed || mouseLeftClicked;
+        boolean actionTriggered = enterPressed || mouseLeftClicked;
 
-        // --- MENU BACKGROUND LOGIC ---
-        if (state == State.MENU || state == State.PAUSED || state == State.GAMEOVER) {
-             playerPos.z += 10; 
-             hue += 0.0005f; if (hue > 1.0f) hue = 0.0f;
-             cam.pos.z = playerPos.z - 200;
+        // --- MENU / BACKGROUND AUTOPILOT LOGIC ---
+        if (state == State.MENU || state == State.PAUSED || state == State.GAMEOVER || state == State.LEVEL_SELECT) {
+            playerPos.z += 10;
+            hue += 0.0005f; if (hue > 1.0f) hue = 0.0f;
+            double time = System.currentTimeMillis() / 1000.0;
+            playerPos.x = Math.sin(time * 0.8) * 150; 
+            cam.pos.z = playerPos.z - 200;
+            
+            for(vector s : menuStars) {
+                s.z -= 10;
+                if(s.z <= 0) {
+                    s.z = 1000;
+                    s.x = (rand.nextDouble() - 0.5) * WIDTH * 2;
+                    s.y = (rand.nextDouble() - 0.5) * HEIGHT * 2;
+                }
+            }
+            titleHoverPhase += 0.05f; 
         }
 
-        if (state == State.PAUSED) {
-            if (wPressed || sPressed) {
-                if (wPressed) pauseSelection = (pauseSelection - 1 + pauseItems.length) % pauseItems.length;
-                if (sPressed) pauseSelection = (pauseSelection + 1) % pauseItems.length;
-                try { Thread.sleep(150); } catch (InterruptedException e) {}
+        if (state == State.LEVEL_SELECT) {
+            levelOrbitAngle += 0.01f;
+            
+            if (aPressed || leftPressed) {
+                selectedLevelIndex = (selectedLevelIndex - 1 + levelNames.length) % levelNames.length;
+                aPressed = false; leftPressed = false; 
             }
-            if (actionTriggered) {
-                if (pauseSelection == 0) state = State.PLAYING;
-                else { state = State.MENU; gameInProgress = true; updateMenuItems(); }
+            if (dPressed || rightPressed) {
+                selectedLevelIndex = (selectedLevelIndex + 1) % levelNames.length;
+                dPressed = false; rightPressed = false;
+            }
+
+            if (actionTriggered || spacePressed) {
+                // DIFFICULTY SETTINGS
+                switch(selectedLevelIndex) {
+                    case 0: difficultyMultiplier = 0.8; break; // Chill
+                    case 1: difficultyMultiplier = 0.9; break; // Easy
+                    case 2: difficultyMultiplier = 1.0; break; // Normal
+                    case 3: difficultyMultiplier = 1.3; break; // Hard
+                    case 4: difficultyMultiplier = 1.6; break; // Nightmare
+                }
+                state = State.COUNTDOWN; 
+                initCountdown();
                 resetInputs();
             }
             return;
@@ -167,28 +218,54 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
                 if (sPressed) menuSelection = (menuSelection + 1) % menuItems.size();
                 try { Thread.sleep(150); } catch (InterruptedException e) {}
             }
+            
             int colorOptionIndex = gameInProgress ? 2 : 1; 
-            if ((aPressed || dPressed) && menuSelection == colorOptionIndex) {
-                 if (aPressed) selectedColorIndex = (selectedColorIndex - 1 + neonColors.length) % neonColors.length;
-                 if (dPressed) selectedColorIndex = (selectedColorIndex + 1) % neonColors.length;
-                 playerColor = neonColors[selectedColorIndex];
-                 try { Thread.sleep(150); } catch (InterruptedException e) {}
+            if (menuSelection == colorOptionIndex) {
+                 if (aPressed || leftPressed) {
+                     selectedColorIndex = (selectedColorIndex - 1 + neonColors.length) % neonColors.length;
+                     playerColor = neonColors[selectedColorIndex];
+                     try { Thread.sleep(150); } catch (InterruptedException e) {}
+                 }
+                 if (dPressed || rightPressed) {
+                     selectedColorIndex = (selectedColorIndex + 1) % neonColors.length;
+                     playerColor = neonColors[selectedColorIndex];
+                     try { Thread.sleep(150); } catch (InterruptedException e) {}
+                 }
             }
-            if (actionTriggered) {
+
+            if (actionTriggered || spacePressed) {
                 String selected = menuItems.get(menuSelection);
                 if (selected.equals("CONTINUE PLAYING")) state = State.PLAYING;
-                else if (selected.equals("START GAME") || selected.equals("NEW GAME")) { state = State.COUNTDOWN; initCountdown(); }
+                else if (selected.equals("START GAME") || selected.equals("NEW GAME")) { 
+                    state = State.LEVEL_SELECT; 
+                    levelOrbitAngle = 0; 
+                }
                 else if (selected.equals("HIGHEST SCORE")) state = State.OPTIONS;
                 else if (selected.equals("CREDITS")) state = State.CREDITS;
                 resetInputs();
             }
         } 
         else if (state == State.GAMEOVER) {
-            if (actionTriggered) { state = State.MENU; gameInProgress = false; updateMenuItems(); resetInputs(); }
+            if (actionTriggered || spacePressed) { state = State.MENU; gameInProgress = false; updateMenuItems(); resetInputs(); }
+            if (state == State.GAMEOVER) {
+                // bgMusic.stop(); // Uncomment if you want silence on death
+            }
         }
         else if (state == State.OPTIONS || state == State.CREDITS) {
-            if (actionTriggered) { state = State.MENU; resetInputs(); }
+            if (actionTriggered || spacePressed) { state = State.MENU; resetInputs(); }
         } 
+        else if (state == State.PAUSED) {
+            if (wPressed || sPressed) {
+                if (wPressed) pauseSelection = (pauseSelection - 1 + pauseItems.length) % pauseItems.length;
+                if (sPressed) pauseSelection = (pauseSelection + 1) % pauseItems.length;
+                try { Thread.sleep(150); } catch (InterruptedException e) {}
+            }
+            if (actionTriggered || spacePressed) { 
+                if (pauseSelection == 0) state = State.PLAYING;
+                else { state = State.MENU; gameInProgress = true; updateMenuItems(); }
+                resetInputs();
+            }
+        }
         else if (state == State.COUNTDOWN) {
             countdownTimer--;
             if (countdownTimer % 60 == 0) countdownValue = countdownTimer / 60;
@@ -199,20 +276,21 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
         }
 
         if (state == State.PLAYING) {
-            if (spacePressed) { state = State.PAUSED; resetInputs(); return; }
+            if (escPressed) { state = State.PAUSED; resetInputs(); return; }
 
             if (invulnerabilityTimer > 0) invulnerabilityTimer--;
             if (shootCooldown > 0) shootCooldown--;
             if (shootCooldown == 0) canShoot = true;
-            if (bombCooldown > 0) bombCooldown--; // Cooldown for bombs
+            if (bombCooldown > 0) bombCooldown--; 
             
             if (healthDropTimer > 0) { healthDropTimer--; if (healthDropTimer == 0) spawnHealthDrop(); }
             
             renderHealth += (health - renderHealth) * 0.1;
             hue += 0.0005f; if (hue > 1.0f) hue = 0.0f;
 
-            double currentSpeed = 10 + (score / 500.0);
-            int spawnRate = Math.max(5, 20 - (score / 1000));
+            double currentSpeed = (10 + (score / 500.0)) * difficultyMultiplier;
+            int baseSpawn = 20 - (score / 1000);
+            int spawnRate = Math.max(5, (int)(baseSpawn / difficultyMultiplier));
 
             double xySpeed = 4.0;
             if (leftPressed || aPressed) playerPos.x -= xySpeed;
@@ -220,8 +298,7 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
             if (wPressed) playerPos.y -= xySpeed;
             if (sPressed) playerPos.y += xySpeed;
 
-            // --- SHOOTING UPGRADES ---
-            boolean triggerShoot = shootPressed || mouseLeftClicked; // 'K' key or Left Click
+            boolean triggerShoot = spacePressed || mouseLeftClicked; 
             if (triggerShoot && canShoot) {
                 int shotCount = 1;
                 if (score > 6000) shotCount = 4;
@@ -242,11 +319,10 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
                 shootCooldown = 10;
             }
             
-            // --- BOMB LOGIC (L KEY OR RIGHT CLICK) ---
-            boolean triggerBomb = bombPressed || mouseRightClicked; // 'L' key or Right Click
+            boolean triggerBomb = fPressed || mouseRightClicked; 
             if (score > 7000 && triggerBomb && bombAmmo > 0 && bombCooldown == 0) {
                 bombAmmo--;
-                bombCooldown = 30; // 0.5s cooldown to prevent accidental dumping
+                bombCooldown = 30; 
                 spawnExplosion(new vector(playerPos.x, playerPos.y, playerPos.z + 500), Color.WHITE, 100); 
                 int destroyed = 0;
                 for (int i=0; i<obstacles.size(); i++) {
@@ -258,7 +334,7 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
                          destroyed++;
                     }
                 }
-                mouseRightClicked = false; // Reset mouse click
+                mouseRightClicked = false; 
             }
 
             double radius = 250;
@@ -275,7 +351,7 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
             
             for (obstacle o : obstacles) {
                 o.update(); 
-                if (o.type == 4) { 
+                if (o.type == 4 || o.type == 5) { // Dragon or T-Rex animation
                     if (rand.nextInt(10) == 0) {
                         particles.add(new particle(o.pos.x, o.pos.y, o.pos.z, (rand.nextDouble()-0.5)*5, (rand.nextDouble()-0.5)*5, -10, 20, Color.ORANGE));
                     }
@@ -310,12 +386,11 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
                 double xyDist = Math.sqrt(Math.pow(o.pos.x - playerPos.x, 2) + Math.pow(o.pos.y - playerPos.y, 2));
                 double hitRad = o.size + 20; 
 
-                // --- CORE COLLISION CHECK ---
                 if (Math.abs(o.pos.z - playerVisualZ) < 50 && xyDist < hitRad) {
                     if (o.type == 2) { 
                         if (health < 3) health++;
                         spawnExplosion(o.pos, Color.GREEN, 20); obstacles.remove(i); i--;
-                    } else if (o.type == 4) { 
+                    } else if (o.type == 4 || o.type == 5) { // BOSS COLLISION (Dragon or T-Rex)
                         health = 0;
                         state = State.GAMEOVER;
                         spawnExplosion(new vector(playerPos.x, playerPos.y, playerPos.z + 200), Color.MAGENTA, 100);
@@ -358,11 +433,13 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
         long gameDuration = System.currentTimeMillis() - gameStartTime;
         highScores.add(new HighScore(score, gameDuration));
         Collections.sort(highScores);
-        if (highScores.size() > 4) highScores.remove(highScores.size() - 1);
+        if (highScores.size() > 5) highScores.remove(highScores.size() - 1);
+        ScoreManager.saveScores(highScores);
     }
 
     public void resetInputs() {
-        enterPressed = false; spacePressed = false; mouseLeftClicked = false; mouseRightClicked = false;
+        enterPressed = false; spacePressed = false; escPressed = false; fPressed = false;
+        mouseLeftClicked = false; mouseRightClicked = false;
     }
 
     public void initCountdown() {
@@ -377,11 +454,7 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
 
     public void spawnObstacle(double zDist, boolean isHealthDrop) {
         double angle = rand.nextDouble() * Math.PI * 2;
-        
-        // FIX: Increased spawn radius from 200 to 280 to ensure obstacles cover the 
-        // entire playable area (max radius 250) and can hit the player in the corners.
         double r = rand.nextDouble() * 280; 
-        
         double x = Math.cos(angle) * r;
         double y = Math.sin(angle) * r;
         double z = playerPos.z + zDist;
@@ -393,14 +466,34 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
         if (isHealthDrop) {
             type = 2; c = Color.GREEN;
         } else {
+            // SPAWN LOGIC BASED ON LEVEL
+            int antScore = 3000;
+            int dragonScore = 6000;
+            int trexScore = 999999; // Practically impossible unless in Chill
+
+            if (selectedLevelIndex == 4) { // NIGHTMARE
+                antScore = 1000;
+                dragonScore = 2500;
+            } else if (selectedLevelIndex == 3) { // HARD
+                antScore = 2000;
+                // Dragons stay default or slightly earlier? Keeping default for Hard to differentiate from Nightmare
+            } else if (selectedLevelIndex == 0) { // CHILL (Chaos Mode)
+                antScore = 1000;
+                dragonScore = 2000;
+                trexScore = 3000;
+            }
+
             int roll = rand.nextInt(100);
-            boolean canSpawnDragon = score > 6000;
-            boolean canSpawnAnt = score > 3000;
+            boolean canSpawnTRex = score > trexScore;
+            boolean canSpawnDragon = score > dragonScore;
+            boolean canSpawnAnt = score > antScore;
             
-            if (canSpawnDragon && roll < 15) { 
-                type = 4; c = Color.WHITE; size = 60; 
+            if (canSpawnTRex && roll < 5) {
+                type = 5; c = Color.YELLOW; size = 70; // T-REX
+            } else if (canSpawnDragon && roll < 15) { 
+                type = 4; c = Color.WHITE; size = 60; // DRAGON
             } else if (canSpawnAnt && roll < 40) { 
-                type = 3; c = Color.RED; size = 20; 
+                type = 3; c = Color.RED; size = 20; // ANT
             } else {
                 type = rand.nextInt(2); 
                 c = neonColors[rand.nextInt(neonColors.length)];
@@ -421,16 +514,34 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
         }
     }
 
+    // =========================================================
+    // RENDER PIPELINE
+    // =========================================================
+
     public void render() {
         BufferStrategy bs = this.getBufferStrategy();
         if (bs == null) { this.createBufferStrategy(3); return; }
         Graphics g = bs.getDrawGraphics();
-        g.setColor(Color.BLACK); g.fillRect(0, 0, WIDTH, HEIGHT);
 
-        render3DScene(g);
+        // 1. Clear Screen
+        g.setColor(Color.BLACK); 
+        g.fillRect(0, 0, WIDTH, HEIGHT);
 
+        // 2. Space Background
+        renderStars(g);
+
+        // 3. Render World
+        if (state == State.LEVEL_SELECT) {
+            renderLevelSelectScene(g); 
+        } else {
+            render3DScene(g);
+        }
+        
+        // **LENS FLARE REMOVED** // 4. UI Layers
         if (state == State.MENU) {
             renderMenuOverlay(g); 
+        } else if (state == State.LEVEL_SELECT) {
+            renderLevelSelectUI(g); 
         } else if (state == State.OPTIONS) {
             renderOverlay(g); renderHighScores(g);
         } else if (state == State.CREDITS) {
@@ -441,13 +552,82 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
              renderOverlay(g); renderGameOver(g);
         }
 
-        if (state == State.PLAYING || state == State.PAUSED) renderHUD(g);
+        if (state == State.PLAYING || state == State.PAUSED) {
+            renderHUD(g);
+            renderCamcorderOverlay(g);
+        }
+        
         if (state == State.COUNTDOWN) renderCountdown(g);
         
-        renderVHSOverlay(g);
+        renderVHSOverlay(g); 
+        renderStaticNoise(g);
+        
         g.dispose(); bs.show();
     }
+
+    public void renderStars(Graphics g) {
+        for (vector s : menuStars) {
+            if (s.z <= 0) continue;
+            double fov = 300;
+            double px = (s.x * fov) / s.z + WIDTH / 2;
+            double py = (s.y * fov) / s.z + HEIGHT / 2;
+            if (px < 0 || px > WIDTH || py < 0 || py > HEIGHT) continue;
+
+            int brightness = (int) (255 - (s.z / 1000.0 * 255));
+            if (brightness < 0) brightness = 0; if (brightness > 255) brightness = 255;
+            g.setColor(new Color(brightness, brightness, brightness));
+            int size = (s.z < 500) ? 3 : 2; 
+            g.fillRect((int)px, (int)py, size, size);
+        }
+    }
     
+    public void renderLevelSelectScene(Graphics g) {
+        camera levelCam = new camera(0, -200, -400); 
+        levelCam.roll = 0;
+        double rot = levelOrbitAngle;
+
+        g.setColor(new Color(0, 50, 50)); 
+        for (int i = -300; i <= 300; i += 50) {
+            vector v1 = new vector(-300, 200, i);
+            vector v2 = new vector(300, 200, i);
+            renderer.drawLine(g, vector.rotateY(v1, rot), vector.rotateY(v2, rot), levelCam, Color.DARK_GRAY);
+            vector v3 = new vector(i, 200, -300);
+            vector v4 = new vector(i, 200, 300);
+            renderer.drawLine(g, vector.rotateY(v3, rot), vector.rotateY(v4, rot), levelCam, Color.DARK_GRAY);
+        }
+
+        double radius = 150;
+        for (int i = 0; i < 5; i++) {
+            double angle = (Math.PI * 2 * i) / 5;
+            double px = Math.cos(angle) * radius;
+            double pz = Math.sin(angle) * radius;
+            
+            Color c = levelColors[i];
+            if (i == selectedLevelIndex) {
+                c = Color.WHITE;
+                vector diamondPos = new vector(px, 100 + Math.sin(animationFrame * 0.1) * 10, pz);
+                renderer.drawCone(g, vector.rotateY(diamondPos, rot), 10, 20, levelCam, c);
+            } else {
+                c = new Color(c.getRed()/2, c.getGreen()/2, c.getBlue()/2);
+            }
+
+            vector pillarPos = new vector(px, 200 - 50, pz); 
+            renderer.drawCube(g, vector.rotateY(pillarPos, rot), 30, levelCam, c);
+        }
+    }
+
+    public void renderLevelSelectUI(Graphics g) {
+        g.setFont(new Font("Courier New", Font.BOLD, 40));
+        String lvlName = levelNames[selectedLevelIndex];
+        Color c = levelColors[selectedLevelIndex];
+        g.setColor(c);
+        drawCenteredString(g, "< " + lvlName + " >", WIDTH / 2, 100);
+        g.setFont(new Font("Courier New", Font.PLAIN, 16));
+        g.setColor(Color.WHITE);
+        String sub = "SELECT DIFFICULTY (A / D)";
+        drawCenteredString(g, sub, WIDTH / 2, 130);
+    }
+
     public void render3DScene(Graphics g) {
         Color tunnelColor = Color.getHSBColor(hue, 1.0f, 1.0f);
         g.setColor(tunnelColor);
@@ -466,6 +646,7 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
             else if (o.type == 2) renderer.drawCapsule(g, o.pos, 20, 60, cam, o.color);
             else if (o.type == 3) renderer.drawAnt(g, o.pos, o.size, o.animationTick, cam, o.color);
             else if (o.type == 4) renderer.drawDragon(g, o.pos, o.size, o.animationTick, cam, o.color);
+            else if (o.type == 5) renderer.drawTRex(g, o.pos, o.size, o.animationTick, cam, o.color); // T-REX
         }
         for (projectile p : projectiles) renderer.drawCube(g, p.pos, 5, cam, p.color);
         for (particle p : particles) renderer.drawLine(g, p.pos, new vector(p.pos.x - p.vel.x, p.pos.y - p.vel.y, p.pos.z - p.vel.z), cam, p.color);
@@ -476,13 +657,52 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
         }
     }
     
+    public void renderCamcorderOverlay(Graphics g) {
+        if ((animationFrame / 30) % 2 == 0) {
+            g.setColor(Color.RED);
+            g.fillOval(50, 50, 20, 20);
+            g.setFont(new Font("Courier New", Font.BOLD, 25));
+            g.drawString("REC", 80, 68);
+        }
+        g.setColor(new Color(255, 255, 255, 150));
+        int m = 30; int l = 50; 
+        g.drawLine(m, m, m + l, m); g.drawLine(m, m, m, m + l);
+        g.drawLine(WIDTH - m, m, WIDTH - m - l, m); g.drawLine(WIDTH - m, m, WIDTH - m, m + l);
+        g.drawLine(m, HEIGHT - m, m + l, HEIGHT - m); g.drawLine(m, HEIGHT - m, m, HEIGHT - m - l);
+        g.drawLine(WIDTH - m, HEIGHT - m, WIDTH - m - l, HEIGHT - m); g.drawLine(WIDTH - m, HEIGHT - m, WIDTH - m, HEIGHT - m - l);
+        g.drawRect(WIDTH - 100, 50, 60, 25);
+        g.fillRect(WIDTH - 40, 55, 5, 15); 
+        g.setColor(Color.GREEN);
+        g.fillRect(WIDTH - 95, 55, 40, 15); 
+        g.setColor(Color.WHITE);
+        g.setFont(new Font("Consolas", Font.PLAIN, 18));
+        long playTime = (System.currentTimeMillis() - gameStartTime) / 1000;
+        String timeStr = String.format("PLAY: 00:%02d:%02d", playTime / 60, playTime % 60);
+        g.drawString(timeStr, 50, HEIGHT - 50);
+    }
+
+    public void renderStaticNoise(Graphics g) {
+        g.setColor(new Color(255, 255, 255, 30)); 
+        for (int i = 0; i < 1000; i++) {
+            g.fillRect(rand.nextInt(WIDTH), rand.nextInt(HEIGHT), 2, 2);
+        }
+        if (rand.nextInt(100) < 5) { 
+            int y = rand.nextInt(HEIGHT);
+            int h = rand.nextInt(50) + 10;
+            g.setColor(new Color(255, 255, 255, 50));
+            g.fillRect(0, y, WIDTH, h);
+            g.setColor(new Color(0, 0, 0, 50));
+            g.drawLine(0, y + h/2, WIDTH, y + h/2);
+        }
+    }
+
     public void renderOverlay(Graphics g) {
         g.setColor(new Color(0, 0, 0, 200));
         g.fillRect(0, 0, WIDTH, HEIGHT);
     }
     
     public void renderMenuOverlay(Graphics g) {
-        g.setColor(new Color(0, 0, 0, 100)); 
+        g.setColor(new Color(0, 0, 0, 100));
         g.fillRect(0, 0, WIDTH, HEIGHT);
         renderTitleAnimation(g);
         renderMenu(g);
@@ -497,7 +717,7 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
             g.setColor(Color.ORANGE);
             g.drawString("BOMBS: " + bombAmmo, 20, 55);
             g.setFont(new Font("Courier New", Font.PLAIN, 12));
-            g.drawString("(RIGHT CLICK / L)", 20, 70); 
+            g.drawString("(PRESS F / RMB)", 20, 70); 
         }
 
         renderer.drawCrosshair(g, WIDTH / 2, HEIGHT / 2, Color.GREEN);
@@ -514,12 +734,12 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
         g.setColor(new Color(0, 0, 0, 150));
         g.fillRect(0, 0, WIDTH, HEIGHT);
         g.setFont(new Font("Courier New", Font.BOLD, 40)); g.setColor(Color.WHITE);
-        String p = "PAUSED"; g.drawString(p, WIDTH/2 - g.getFontMetrics().stringWidth(p)/2, HEIGHT/2 - 100);
+        drawCenteredString(g, "PAUSED", WIDTH/2, HEIGHT/2 - 100);
         g.setFont(new Font("Courier New", Font.BOLD, 28));
         for (int i = 0; i < pauseItems.length; i++) {
             g.setColor(i == pauseSelection ? Color.CYAN : Color.GRAY);
             String item = pauseItems[i]; if (i == pauseSelection) item = "> " + item + " <";
-            g.drawString(item, WIDTH/2 - g.getFontMetrics().stringWidth(item)/2, HEIGHT/2 + i * 50);
+            drawCenteredString(g, item, WIDTH/2, HEIGHT/2 + i * 50);
         }
     }
     
@@ -533,7 +753,12 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
         g.setFont(new Font("Courier New", Font.BOLD, 150)); g.setColor(Color.GREEN);
         String text = (countdownTimer > -60 && countdownValue == 0) ? "GO!" : String.valueOf(countdownValue);
         if (countdownValue == 0 && countdownTimer <= 0) text = "GO!";
-        if (countdownValue > 0) g.drawString(text, WIDTH/2 - g.getFontMetrics().stringWidth(text)/2, HEIGHT/2 + 50);
+        if (countdownValue > 0) drawCenteredString(g, text, WIDTH/2, HEIGHT/2 + 50);
+    }
+
+    public void drawCenteredString(Graphics g, String text, int x, int y) {
+        int width = g.getFontMetrics().stringWidth(text);
+        g.drawString(text, x - width / 2, y);
     }
 
     public void renderMenu(Graphics g) {
@@ -544,35 +769,46 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
             g.setColor(color);
             String itemText = menuItems.get(i);
             if (itemText.equals("PLAYER COLOR")) itemText += " < Color #" + (selectedColorIndex + 1) + " > ";
-            g.drawString(itemText, WIDTH / 2 - g.getFontMetrics().stringWidth(itemText) / 2, startY + i * 40);
+            drawCenteredString(g, itemText, WIDTH / 2, startY + i * 40);
         }
         g.setFont(new Font("Courier New", Font.PLAIN, 18)); g.setColor(Color.GRAY);
-        String instruction = "W/S to navigate, ENTER/SPACE/CLICK to select.";
-        g.drawString(instruction, WIDTH/2 - g.getFontMetrics().stringWidth(instruction)/2, HEIGHT - 50);
+        String instruction = "W/S to navigate, SPACE/ENTER to select.";
+        drawCenteredString(g, instruction, WIDTH/2, HEIGHT - 50);
     }
     
     public void renderTitleAnimation(Graphics g) {
-        String title = "RETRO RUNNER";
-        g.setFont(new Font("Courier New", Font.BOLD, 48));
-        int titleX = WIDTH / 2 - g.getFontMetrics().stringWidth(title) / 2;
-        int titleY = 100;
-        g.setFont(new Font("Courier New", Font.PLAIN, 12)); g.setColor(Color.WHITE);
-        String subtext = "A PixelVerse Production";
-        g.drawString(subtext, WIDTH / 2 - g.getFontMetrics().stringWidth(subtext) / 2, 130);
-        g.setFont(new Font("Courier New", Font.BOLD, 48));
-        for (int i = 0; i < title.length(); i++) {
-            char c = title.charAt(i);
-            int offset = (animationFrame % 10 == 0 && rand.nextBoolean()) ? 2 : 0;
-            g.setColor(new Color(255, 0, 0, 100)); g.drawString(String.valueOf(c), titleX + g.getFontMetrics().stringWidth(title.substring(0, i)) - 2 - offset, titleY);
-            g.setColor(new Color(0, 0, 255, 100)); g.drawString(String.valueOf(c), titleX + g.getFontMetrics().stringWidth(title.substring(0, i)) + 2 + offset, titleY);
-            g.setColor(Color.MAGENTA); g.drawString(String.valueOf(c), titleX + g.getFontMetrics().stringWidth(title.substring(0, i)), titleY);
+        String title = "WIRE FLEE"; 
+        g.setFont(new Font("Impact", Font.ITALIC, 80)); 
+        int titleW = g.getFontMetrics().stringWidth(title);
+        int centerX = WIDTH / 2 - titleW / 2;
+        int hoverY = (int) (Math.sin(titleHoverPhase) * 6); 
+        int baseY = 150 + hoverY;
+        int depth = 15;
+        for (int i = 0; i < depth; i++) {
+            float ratio = (float) i / depth;
+            Color layerColor;
+            if (i == depth - 1) {
+                layerColor = Color.WHITE; 
+            } else {
+                layerColor = new Color(
+                    (int)(50 + ratio * 0),   
+                    (int)(0 + ratio * 255),   
+                    (int)(100 + ratio * 155)  
+                ); 
+            }
+            g.setColor(layerColor);
+            g.drawString(title, centerX - i, baseY - i); 
         }
+        g.setFont(new Font("Courier New", Font.BOLD, 16));
+        g.setColor(Color.YELLOW);
+        String sub = "A Pixelverse Production"; 
+        int subHoverY = (int) (Math.sin(titleHoverPhase - 1.0) * 5);
+        drawCenteredString(g, sub, WIDTH / 2, baseY + 40 + subHoverY);
     }
     
     public void renderHighScores(Graphics g) {
         g.setFont(new Font("Courier New", Font.BOLD, 36)); g.setColor(Color.YELLOW);
-        String title = "HIGHEST SCORES";
-        g.drawString(title, WIDTH / 2 - g.getFontMetrics().stringWidth(title) / 2, HEIGHT / 2 - 100);
+        drawCenteredString(g, "HIGHEST SCORES", WIDTH / 2, HEIGHT / 2 - 100);
         g.setFont(new Font("Courier New", Font.PLAIN, 24)); g.setColor(Color.WHITE);
         int startY = HEIGHT / 2 - 30;
         int leftAlignX = 150;
@@ -582,47 +818,58 @@ public class game extends Canvas implements Runnable, KeyListener, MouseListener
             g.drawString(line, leftAlignX, startY + i * 35);
         }
         g.setFont(new Font("Courier New", Font.PLAIN, 18)); g.setColor(Color.GRAY);
-        String instruction = "PRESS ENTER/SPACE/CLICK TO RETURN";
-        g.drawString(instruction, WIDTH/2 - g.getFontMetrics().stringWidth(instruction)/2, HEIGHT - 50);
+        drawCenteredString(g, "PRESS ENTER/SPACE/CLICK TO RETURN", WIDTH/2, HEIGHT - 50);
     }
     
     public void renderCredits(Graphics g) {
         g.setFont(new Font("Courier New", Font.BOLD, 36)); g.setColor(Color.YELLOW);
-        String title = "CREDITS"; g.drawString(title, WIDTH/2 - g.getFontMetrics().stringWidth(title)/2, HEIGHT/2 - 100);
+        drawCenteredString(g, "CREDITS", WIDTH/2, HEIGHT/2 - 100);
         g.setFont(new Font("Courier New", Font.PLAIN, 24)); g.setColor(Color.WHITE);
-        String[] lines = {"STUDIO: PixelVerse", "COLLABORATOR: Projukti Lipi"};
-        for (int i=0; i<lines.length; i++) g.drawString(lines[i], WIDTH/2 - g.getFontMetrics().stringWidth(lines[i])/2, HEIGHT/2 + i*30);
+        String[] lines = {
+            "STUDIO: PixelVerse", 
+            "Ahnaf Ashique Adi", 
+            "Ahmed Abu Bakar",
+            "STUDIO: Space Jam",
+            "Colaboration: ProjuktiLipi"
+        };
+        for (int i=0; i<lines.length; i++) {
+            drawCenteredString(g, lines[i], WIDTH/2, HEIGHT/2 + i*30);
+        }
     }
 
     public void renderGameOver(Graphics g) {
         g.setFont(new Font("Courier New", Font.BOLD, 40)); g.setColor(Color.RED);
-        String go = "GAME OVER"; g.drawString(go, WIDTH/2 - g.getFontMetrics().stringWidth(go)/2, HEIGHT/2 - 40);
+        drawCenteredString(g, "GAME OVER", WIDTH/2, HEIGHT/2 - 40);
         g.setFont(new Font("Courier New", Font.PLAIN, 20)); g.setColor(Color.WHITE);
-        String sc = "FINAL SCORE: " + score; g.drawString(sc, WIDTH/2 - g.getFontMetrics().stringWidth(sc)/2, HEIGHT/2 + 10);
-        String res = "PRESS ENTER/SPACE/CLICK TO MENU"; g.drawString(res, WIDTH/2 - g.getFontMetrics().stringWidth(res)/2, HEIGHT/2 + 50);
+        String sc = "FINAL SCORE: " + score; 
+        drawCenteredString(g, sc, WIDTH/2, HEIGHT/2 + 10);
+        String res = "PRESS SPACE/ENTER TO MENU"; 
+        drawCenteredString(g, res, WIDTH/2, HEIGHT/2 + 50);
     }
 
     public void keyPressed(KeyEvent e) {
         int k = e.getKeyCode();
-        if (k==KeyEvent.VK_LEFT) leftPressed=true; if (k==KeyEvent.VK_RIGHT) rightPressed=true;
-        if (k==KeyEvent.VK_W || k==KeyEvent.VK_UP) wPressed=true;
-        if (k==KeyEvent.VK_S || k==KeyEvent.VK_DOWN) sPressed=true;
-        if (k==KeyEvent.VK_A) aPressed=true; if (k==KeyEvent.VK_D) dPressed=true;
-        if (k==KeyEvent.VK_SPACE) spacePressed=true;
-        if (k==KeyEvent.VK_ENTER) enterPressed=true;
-        if (k==KeyEvent.VK_K) shootPressed=true; // Key K for shooting
-        if (k==KeyEvent.VK_L) bombPressed=true;  // Key L for bombing
+        if (k==KeyEvent.VK_LEFT || k==KeyEvent.VK_A) leftPressed=true; 
+        if (k==KeyEvent.VK_RIGHT || k==KeyEvent.VK_D) rightPressed=true;
+        if (k==KeyEvent.VK_UP || k==KeyEvent.VK_W) wPressed=true;
+        if (k==KeyEvent.VK_DOWN || k==KeyEvent.VK_S) sPressed=true;
+        
+        if (k==KeyEvent.VK_SPACE) spacePressed=true; 
+        if (k==KeyEvent.VK_ESCAPE) escPressed=true;  
+        if (k==KeyEvent.VK_F) fPressed=true;         
+        if (k==KeyEvent.VK_ENTER) enterPressed=true; 
     }
     public void keyReleased(KeyEvent e) {
         int k = e.getKeyCode();
-        if (k==KeyEvent.VK_LEFT) leftPressed=false; if (k==KeyEvent.VK_RIGHT) rightPressed=false;
-        if (k==KeyEvent.VK_W || k==KeyEvent.VK_UP) wPressed=false;
-        if (k==KeyEvent.VK_S || k==KeyEvent.VK_DOWN) sPressed=false;
-        if (k==KeyEvent.VK_A) aPressed=false; if (k==KeyEvent.VK_D) dPressed=false;
+        if (k==KeyEvent.VK_LEFT || k==KeyEvent.VK_A) leftPressed=false; 
+        if (k==KeyEvent.VK_RIGHT || k==KeyEvent.VK_D) rightPressed=false;
+        if (k==KeyEvent.VK_UP || k==KeyEvent.VK_W) wPressed=false;
+        if (k==KeyEvent.VK_DOWN || k==KeyEvent.VK_S) sPressed=false;
+        
         if (k==KeyEvent.VK_SPACE) spacePressed=false;
+        if (k==KeyEvent.VK_ESCAPE) escPressed=false;
+        if (k==KeyEvent.VK_F) fPressed=false;
         if (k==KeyEvent.VK_ENTER) enterPressed=false;
-        if (k==KeyEvent.VK_K) shootPressed=false; // Key K for shooting
-        if (k==KeyEvent.VK_L) bombPressed=false;  // Key L for bombing
     }
     public void keyTyped(KeyEvent e) {}
     public void mouseClicked(MouseEvent e) {}
